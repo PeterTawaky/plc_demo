@@ -1,7 +1,32 @@
 part of 'test_cubit.dart';
 
 @immutable
-sealed class TestState {}
+abstract class TestState {}
 
-final class TestInitial extends TestState {}
-final class UpdateState extends TestState {}
+class TestInitial extends TestState {}
+
+class TestConnecting extends TestState {}
+
+class TestConnected extends TestState {}
+
+class TestConnectionFailed extends TestState {
+  final String error;
+  
+  TestConnectionFailed(this.error);
+}
+
+class TestReading extends TestState {}
+
+class TestDataUpdated extends TestState {}
+
+class TestWriting extends TestState {}
+
+class TestWriteSuccess extends TestState {}
+
+class TestDisconnected extends TestState {}
+
+class TestError extends TestState {
+  final String message;
+  
+  TestError(this.message);
+}

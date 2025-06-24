@@ -1,4 +1,6 @@
 // lib/main.dart
+import 'dart:isolate';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:plc_demo/clean_code_practice/text_field_model.dart';
@@ -6,7 +8,9 @@ import 'package:plc_demo/cubit/test_cubit.dart';
 import 'package:plc_demo/service/app_enums.dart';
 import 'package:plc_demo/widgets/layout/custom_vertical_list.dart';
 
-void main() => runApp(const MyApp());
+void main() {
+  runApp(const MyApp());
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
