@@ -18,7 +18,7 @@ class TestCubit extends Cubit<TestState> {
   bool _shouldKeepReading = false;
 
   final List<TextEditingController> controllers = List.generate(
-    30,
+    80,
     (_) => TextEditingController(),
   );
 
