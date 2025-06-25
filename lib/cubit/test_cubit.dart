@@ -21,7 +21,7 @@ class TestCubit extends Cubit<TestState> {
   bool _isCurrentlyReading = false;
 
   final List<TextEditingController> controllers = List.generate(
-    80,
+    1000,
     (_) => TextEditingController(),
   );
 
@@ -38,11 +38,11 @@ class TestCubit extends Cubit<TestState> {
 
   Future<void> connectToPLC({required List<TextFieldModel> textFields}) async {
     emit(TestConnecting());
-    
+
     try {
       final success = await PLCService.connect("192.168.0.1", 0, 1);
       isConnected = success;
-      
+
       if (success) {
         _startContinuousReading(textFields: textFields);
         log('Connected to PLC successfully');
@@ -66,7 +66,7 @@ class TestCubit extends Cubit<TestState> {
         }
         return;
       }
-      
+
       // Use optimized reading with chunking and yielding
       _readAllValuesOptimized(textFields);
     });
@@ -78,20 +78,20 @@ class TestCubit extends Cubit<TestState> {
     if (!isConnected || _isCurrentlyReading) return;
 
     _isCurrentlyReading = true;
-    
+
     try {
       // Process in chunks to avoid blocking UI for too long
       const chunkSize = 5; // Adjust based on your PLC response time
       int processedCount = 0;
-      
+
       for (int i = 0; i < textFields.length; i += chunkSize) {
         // Check if we should stop reading
         if (!_shouldKeepReading || !isConnected) break;
-        
-        final endIndex = (i + chunkSize < textFields.length) 
-            ? i + chunkSize 
+
+        final endIndex = (i + chunkSize < textFields.length)
+            ? i + chunkSize
             : textFields.length;
-        
+
         // Process chunk synchronously (since PLC calls must be synchronous)
         for (int j = i; j < endIndex; j++) {
           try {
@@ -99,18 +99,18 @@ class TestCubit extends Cubit<TestState> {
               textFields[j].type,
               textFields[j].address,
             );
-            
+
             // Update UI only if user is not editing
             if (!textFields[j].focusNode.hasFocus) {
               controllers[j].text = textFields[j].valuesFromPLC.toString();
             }
-            
+
             processedCount++;
           } catch (e) {
             log('Error reading field $j: $e');
           }
         }
-        
+
         // Yield control to UI thread after each chunk
         // This allows UI to remain responsive
         await Future.delayed(Duration.zero);
@@ -120,7 +120,6 @@ class TestCubit extends Cubit<TestState> {
         log('Read $processedCount values from PLC successfully');
         emit(TestDataUpdated());
       }
-      
     } catch (e) {
       log('Read error: $e');
       emit(TestError('Read error: $e'));
@@ -134,57 +133,59 @@ class TestCubit extends Cubit<TestState> {
     if (!isConnected || _isCurrentlyReading) return;
 
     _isCurrentlyReading = true;
-    
+
     try {
       final Stopwatch stopwatch = Stopwatch()..start();
-      
+
       // Group reads by data block for efficiency (if your PLC supports it)
       final Map<String, List<int>> addressGroups = {};
-      
+
       for (int i = 0; i < textFields.length; i++) {
         final address = textFields[i].address;
         // Extract DB number (assuming format like "DB1.DBW0")
         final dbPart = address.split('.')[0];
-        
+
         addressGroups.putIfAbsent(dbPart, () => []).add(i);
       }
-      
+
       int successCount = 0;
       int errorCount = 0;
-      
+
       // Process each group
       for (final group in addressGroups.entries) {
         if (!_shouldKeepReading || !isConnected) break;
-        
+
         for (final index in group.value) {
           try {
             textFields[index].valuesFromPLC = PLCService.read(
               textFields[index].type,
               textFields[index].address,
             );
-            
+
             if (!textFields[index].focusNode.hasFocus) {
-              controllers[index].text = textFields[index].valuesFromPLC.toString();
+              controllers[index].text = textFields[index].valuesFromPLC
+                  .toString();
             }
-            
+
             successCount++;
           } catch (e) {
             errorCount++;
             log('Error reading field $index: $e');
           }
         }
-        
+
         // Yield after each DB group
         await Future.delayed(Duration.zero);
       }
-      
+
       stopwatch.stop();
-      log('Batch read completed: $successCount success, $errorCount errors, ${stopwatch.elapsedMilliseconds}ms');
-      
+      log(
+        'Batch read completed: $successCount success, $errorCount errors, ${stopwatch.elapsedMilliseconds}ms',
+      );
+
       if (successCount > 0) {
         emit(TestDataUpdated());
       }
-      
     } catch (e) {
       log('Batch read error: $e');
       emit(TestError('Batch read error: $e'));
@@ -195,7 +196,7 @@ class TestCubit extends Cubit<TestState> {
 
   Future<void> disconnectFromPLC() async {
     _stopContinuousReading();
-    
+
     try {
       PLCService.disconnect();
       isConnected = false;
@@ -220,7 +221,7 @@ class TestCubit extends Cubit<TestState> {
   }) async {
     try {
       emit(TestWriting());
-      
+
       switch (type) {
         case TagType.int:
           value = int.parse(controller.text);
@@ -237,7 +238,7 @@ class TestCubit extends Cubit<TestState> {
         default:
           throw Exception('Unsupported tag type: $type');
       }
-      
+
       log('Data written successfully');
       emit(TestWriteSuccess());
     } catch (e) {
@@ -247,7 +248,9 @@ class TestCubit extends Cubit<TestState> {
   }
 
   /// Manual trigger for single read operation
-  Future<void> performSingleRead({required List<TextFieldModel> textFields}) async {
+  Future<void> performSingleRead({
+    required List<TextFieldModel> textFields,
+  }) async {
     if (!isConnected) {
       emit(TestError('Not connected to PLC'));
       return;
@@ -267,7 +270,7 @@ class TestCubit extends Cubit<TestState> {
           }
           return;
         }
-        
+
         _readAllValuesOptimized(_getCurrentTextFields());
       });
     }
