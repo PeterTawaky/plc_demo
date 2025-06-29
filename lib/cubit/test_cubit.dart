@@ -20,6 +20,12 @@ class TestCubit extends Cubit<TestState> {
   bool _shouldKeepReading = false;
   bool _isCurrentlyReading = false;
 
+  // Add these for better monitoring
+  int _consecutiveErrors = 0;
+  int _totalReads = 0;
+  int _successfulReads = 0;
+  DateTime? _lastSuccessfulRead;
+
   final List<TextEditingController> controllers = List.generate(
     1000,
     (_) => TextEditingController(),
@@ -27,9 +33,15 @@ class TestCubit extends Cubit<TestState> {
 
   @override
   Future<void> close() {
-    // Dispose controllers
-    for (final controller in controllers) {
-      controller.dispose();
+    log('Disposing TestCubit resources...');
+
+    // Dispose controllers with error handling
+    for (int i = 0; i < controllers.length; i++) {
+      try {
+        controllers[i].dispose();
+      } catch (e) {
+        log('Error disposing controller $i: $e');
+      }
     }
 
     _stopContinuousReading();
@@ -40,21 +52,46 @@ class TestCubit extends Cubit<TestState> {
     emit(TestConnecting());
 
     try {
-      final success = await PLCService.connect("192.168.0.1", 0, 1);
+      // Add connection retry logic
+      final success = await _connectWithRetry();
       isConnected = success;
 
       if (success) {
+        _resetCounters(); // Reset monitoring counters
         _startContinuousReading(textFields: textFields);
         log('Connected to PLC successfully');
         emit(TestConnected());
       } else {
-        log('Connection failed with PLC');
-        emit(TestConnectionFailed('Failed to connect to PLC'));
+        log('Connection failed with PLC after retries');
+        emit(TestConnectionFailed('Failed to connect to PLC after retries'));
       }
     } catch (e) {
       log('Connection error: $e');
       emit(TestConnectionFailed(e.toString()));
     }
+  }
+
+  // Add retry logic for better reliability
+  Future<bool> _connectWithRetry({int maxRetries = 3}) async {
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        log('PLC connection attempt $attempt/$maxRetries');
+        final success = await PLCService.connect("192.168.0.1", 0, 1);
+        if (success) return true;
+
+        if (attempt < maxRetries) {
+          await Future.delayed(
+            Duration(seconds: attempt * 2),
+          ); // Exponential backoff
+        }
+      } catch (e) {
+        log('Connection attempt $attempt failed: $e');
+        if (attempt < maxRetries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+        }
+      }
+    }
+    return false;
   }
 
   void _startContinuousReading({required List<TextFieldModel> textFields}) {
@@ -67,32 +104,30 @@ class TestCubit extends Cubit<TestState> {
         return;
       }
 
-      // Use optimized reading with chunking and yielding
       _readAllValuesOptimized(textFields);
     });
   }
 
-  /// Optimized reading that processes data in chunks and yields control
-  /// to prevent UI blocking while staying on the main thread
+  /// Enhanced optimized reading with better error handling and monitoring
   Future<void> _readAllValuesOptimized(List<TextFieldModel> textFields) async {
     if (!isConnected || _isCurrentlyReading) return;
 
     _isCurrentlyReading = true;
+    final readStartTime = DateTime.now();
 
     try {
-      // Process in chunks to avoid blocking UI for too long
-      const chunkSize = 5; // Adjust based on your PLC response time
+      const chunkSize = 5; // Your optimal chunk size
       int processedCount = 0;
+      int errorCount = 0;
 
       for (int i = 0; i < textFields.length; i += chunkSize) {
-        // Check if we should stop reading
         if (!_shouldKeepReading || !isConnected) break;
 
         final endIndex = (i + chunkSize < textFields.length)
             ? i + chunkSize
             : textFields.length;
 
-        // Process chunk synchronously (since PLC calls must be synchronous)
+        // Process chunk with individual error handling
         for (int j = i; j < endIndex; j++) {
           try {
             textFields[j].valuesFromPLC = PLCService.read(
@@ -100,35 +135,59 @@ class TestCubit extends Cubit<TestState> {
               textFields[j].address,
             );
 
-            // Update UI only if user is not editing
             if (!textFields[j].focusNode.hasFocus) {
               controllers[j].text = textFields[j].valuesFromPLC.toString();
             }
 
             processedCount++;
           } catch (e) {
-            log('Error reading field $j: $e');
+            errorCount++;
+            log('Error reading field $j (${textFields[j].address}): $e');
           }
         }
 
         // Yield control to UI thread after each chunk
-        // This allows UI to remain responsive
         await Future.delayed(Duration.zero);
       }
 
+      // Update monitoring stats
+      _totalReads++;
+      if (errorCount == 0) {
+        _successfulReads++;
+        _consecutiveErrors = 0;
+        _lastSuccessfulRead = DateTime.now();
+      } else {
+        _consecutiveErrors++;
+      }
+
+      final readDuration = DateTime.now()
+          .difference(readStartTime)
+          .inMilliseconds;
+
       if (processedCount > 0) {
-        log('Read $processedCount values from PLC successfully');
+        log(
+          'Read $processedCount values (${errorCount} errors) in ${readDuration}ms',
+        );
         emit(TestDataUpdated());
       }
+
+      // Check for too many consecutive errors
+      if (_consecutiveErrors >= 5) {
+        log(
+          'Too many consecutive errors ($_consecutiveErrors) - may need reconnection',
+        );
+        emit(TestError('Multiple consecutive read errors detected'));
+      }
     } catch (e) {
-      log('Read error: $e');
-      emit(TestError('Read error: $e'));
+      _consecutiveErrors++;
+      log('Critical read error: $e');
+      emit(TestError('Critical read error: $e'));
     } finally {
       _isCurrentlyReading = false;
     }
   }
 
-  /// Alternative: Batch reading with error recovery
+  /// Your existing batch reading method - enhanced with better monitoring
   Future<void> _readAllValuesBatched(List<TextFieldModel> textFields) async {
     if (!isConnected || _isCurrentlyReading) return;
 
@@ -137,14 +196,12 @@ class TestCubit extends Cubit<TestState> {
     try {
       final Stopwatch stopwatch = Stopwatch()..start();
 
-      // Group reads by data block for efficiency (if your PLC supports it)
+      // Group reads by data block for efficiency
       final Map<String, List<int>> addressGroups = {};
 
       for (int i = 0; i < textFields.length; i++) {
         final address = textFields[i].address;
-        // Extract DB number (assuming format like "DB1.DBW0")
         final dbPart = address.split('.')[0];
-
         addressGroups.putIfAbsent(dbPart, () => []).add(i);
       }
 
@@ -170,17 +227,29 @@ class TestCubit extends Cubit<TestState> {
             successCount++;
           } catch (e) {
             errorCount++;
-            log('Error reading field $index: $e');
+            log(
+              'Error reading field $index (${textFields[index].address}): $e',
+            );
           }
         }
 
-        // Yield after each DB group
         await Future.delayed(Duration.zero);
       }
 
       stopwatch.stop();
+
+      // Update monitoring
+      _totalReads++;
+      if (errorCount == 0) {
+        _successfulReads++;
+        _consecutiveErrors = 0;
+        _lastSuccessfulRead = DateTime.now();
+      } else {
+        _consecutiveErrors++;
+      }
+
       log(
-        'Batch read completed: $successCount success, $errorCount errors, ${stopwatch.elapsedMilliseconds}ms',
+        'Batch read: $successCount success, $errorCount errors, ${stopwatch.elapsedMilliseconds}ms',
       );
 
       if (successCount > 0) {
@@ -239,15 +308,14 @@ class TestCubit extends Cubit<TestState> {
           throw Exception('Unsupported tag type: $type');
       }
 
-      log('Data written successfully');
+      log('Data written successfully to $address');
       emit(TestWriteSuccess());
     } catch (e) {
-      log('Write error: $e');
+      log('Write error for $address: $e');
       emit(TestError('Write error: $e'));
     }
   }
 
-  /// Manual trigger for single read operation
   Future<void> performSingleRead({
     required List<TextFieldModel> textFields,
   }) async {
@@ -259,7 +327,6 @@ class TestCubit extends Cubit<TestState> {
     await _readAllValuesOptimized(textFields);
   }
 
-  /// Update reading interval
   void updateReadingInterval(Duration interval) {
     if (_readTimer?.isActive == true) {
       _readTimer?.cancel();
@@ -271,15 +338,41 @@ class TestCubit extends Cubit<TestState> {
           return;
         }
 
-        _readAllValuesOptimized(_getCurrentTextFields());
+        // You'll need to pass the actual textFields here
+        // _readAllValuesOptimized(_getCurrentTextFields());
       });
     }
   }
 
-  /// Helper to get current text fields (you'll need to implement this)
-  List<TextFieldModel> _getCurrentTextFields() {
-    // Return your current text fields list
-    // This is a placeholder - implement based on your architecture
-    return [];
+  // Add monitoring methods
+  void _resetCounters() {
+    _consecutiveErrors = 0;
+    _totalReads = 0;
+    _successfulReads = 0;
+    _lastSuccessfulRead = null;
+  }
+
+  /// Get performance statistics
+  Map<String, dynamic> getPerformanceStats() {
+    final successRate = _totalReads > 0
+        ? (_successfulReads / _totalReads * 100)
+        : 0;
+
+    return {
+      'isConnected': isConnected,
+      'totalReads': _totalReads,
+      'successfulReads': _successfulReads,
+      'successRate': successRate.toStringAsFixed(1) + '%',
+      'consecutiveErrors': _consecutiveErrors,
+      'lastSuccessfulRead': _lastSuccessfulRead?.toIso8601String(),
+      'isCurrentlyReading': _isCurrentlyReading,
+    };
+  }
+
+  /// Log performance summary
+  void logPerformanceSummary() {
+    final stats = getPerformanceStats();
+    log('=== PERFORMANCE SUMMARY ===');
+    stats.forEach((key, value) => log('$key: $value'));
   }
 }
