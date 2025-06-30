@@ -4,11 +4,13 @@ import 'package:plc_demo/service/app_enums.dart';
 class TextFieldModel {
   final String address;
   final TagType type;
+  final int acquistion;
   final FocusNode focusNode = FocusNode();
   dynamic valuesFromPLC;
   TextFieldModel({
     required this.address,
     required this.type,
+    required this.acquistion,
     this.valuesFromPLC,
   });
 }

@@ -7,7 +7,9 @@ import 'package:flutter/widgets.dart';
 import 'package:meta/meta.dart';
 import 'package:plc_demo/clean_code_practice/text_field_dto_model.dart';
 import 'package:plc_demo/clean_code_practice/text_field_model.dart';
+import 'package:plc_demo/model/tag_model.dart';
 import 'package:plc_demo/service/app_enums.dart';
+import 'package:plc_demo/service/excel_service.dart';
 import 'package:plc_demo/service/plc_service.dart';
 
 part 'test_state.dart';
@@ -25,9 +27,8 @@ class TestCubit extends Cubit<TestState> {
   int _totalReads = 0;
   int _successfulReads = 0;
   DateTime? _lastSuccessfulRead;
-
   final List<TextEditingController> controllers = List.generate(
-    1000,
+    3,
     (_) => TextEditingController(),
   );
 
@@ -58,7 +59,9 @@ class TestCubit extends Cubit<TestState> {
 
       if (success) {
         _resetCounters(); // Reset monitoring counters
-        _startContinuousReading(textFields: textFields);
+        _startContinuousReading100(textFields: tags100);
+        _startContinuousReading250(textFields: tags250);
+        _startContinuousReading500(textFields: tags500);
         log('Connected to PLC successfully');
         emit(TestConnected());
       } else {
@@ -94,9 +97,37 @@ class TestCubit extends Cubit<TestState> {
     return false;
   }
 
-  void _startContinuousReading({required List<TextFieldModel> textFields}) {
+  void _startContinuousReading100({required List<TextFieldModel> textFields}) {
+    _shouldKeepReading = true;
+    _readTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!_shouldKeepReading || !isConnected || _isCurrentlyReading) {
+        if (!_shouldKeepReading || !isConnected) {
+          timer.cancel();
+        }
+        return;
+      }
+
+      _readAllValuesOptimized(textFields);
+    });
+  }
+
+  void _startContinuousReading250({required List<TextFieldModel> textFields}) {
     _shouldKeepReading = true;
     _readTimer = Timer.periodic(const Duration(milliseconds: 250), (timer) {
+      if (!_shouldKeepReading || !isConnected || _isCurrentlyReading) {
+        if (!_shouldKeepReading || !isConnected) {
+          timer.cancel();
+        }
+        return;
+      }
+
+      _readAllValuesOptimized(textFields);
+    });
+  }
+
+  void _startContinuousReading500({required List<TextFieldModel> textFields}) {
+    _shouldKeepReading = true;
+    _readTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
       if (!_shouldKeepReading || !isConnected || _isCurrentlyReading) {
         if (!_shouldKeepReading || !isConnected) {
           timer.cancel();

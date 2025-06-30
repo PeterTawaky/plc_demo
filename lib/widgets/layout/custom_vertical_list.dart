@@ -12,30 +12,31 @@ class CustomVerticalList extends StatelessWidget {
   Widget build(BuildContext context) {
     final cubit = context.read<TestCubit>();
 
-    return Wrap(
-      direction: Axis.horizontal,
-      spacing: 10,
-      runSpacing: 10,
-      children: List.generate(cubit.controllers.length, (index) {
-        return SizedBox(
-          width: 100,
-          child: CoolTextField(
-            type: textFields[index].type,
-            controller: cubit.controllers[index],
-            focusNode: textFields[index].focusNode,
-            address: textFields[index].address,
-          ),
-        );
-      }),
-    );
-    // return ListView.builder(
-    //   itemCount: cubit.controllers.length,
-    //   itemBuilder: (context, index) => CoolTextField(
-    //     type: textFields[index].type,
-    //     controller: cubit.controllers[index],
-    //     focusNode: textFields[index].focusNode,
-    //     address: textFields[index].address,
-    //   ),
+    // return Wrap(
+    //   direction: Axis.horizontal,
+    //   spacing: 10,
+    //   runSpacing: 10,
+    //   children: List.generate(cubit.controllers.length, (index) {
+    //     return SizedBox(
+    //       width: 100,
+    //       child: CoolTextField(
+    //         type: textFields[index].type,
+    //         controller: cubit.controllers[index],
+    //         focusNode: textFields[index].focusNode,
+    //         address: textFields[index].address,
+    //       ),
+    //     );
+    //   }),
     // );
+    return ListView.builder(
+      itemCount: cubit.tags100.length,
+      itemBuilder: (context, index) => CoolTextField(
+        type: cubit.tags100[index].type,
+        controller: cubit.controllers[index],
+        // focusNode: textFields[index].focusNode,
+        focusNode: FocusNode(),
+        address: cubit.tags100[index].address,
+      ),
+    );
   }
 }
